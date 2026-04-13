@@ -128,35 +128,61 @@ elif page == "📋 数据采集与随访问卷":
                 st.session_state.patients = pd.DataFrame()
                 st.rerun()
 
-# ==================== AI数字医疗模型 ====================
+# ==================== AI数字医疗模型（已升级：真实数据+合成数据联合训练） ====================
 elif page == "🧠 AI数字医疗模型":
     st.header("数字医疗模型构建")
-    st.write("**模型架构**：RandomForestClassifier\n**验证方法**：准确率、精确率、召回率、F1分数")
+    st.markdown("""
+    **✅ 已升级：真实录入患者数据 + 合成数据 联合训练**
+    **模型架构**：RandomForestClassifier
+    **训练数据**：您手动录入的真实数据 + 自动补充的标准数据
+    """)
 
-    if st.button("🚀 生成合成数据 + 训练AI模型（500例）", type="primary"):
+    if st.button("🚀 使用真实数据训练AI模型", type="primary"):
         np.random.seed(42)
-        n = 500
+        
+        # ==============================================
+        # 【核心升级点】读取你手动录入的真实患者数据
+        # ==============================================
+        real_patients = st.session_state.patients.copy()
+        real_data_used = 0
 
-        age = np.random.randint(18, 70, n)
-        bmi = np.random.uniform(18, 45, n)
-        exercise = np.random.uniform(0, 15, n)
-        diet = np.random.randint(1, 11, n)
+        # 构建训练用数据集
+        train_data_list = []
 
-        risk = np.where(bmi >= 35, 2,
-                        np.where((bmi >= 30) | (exercise < 3), 2,
-                                 np.where(bmi >= 25, 1, 0)))
+        # 如果有真实数据 → 加入训练集
+        if not real_patients.empty and "BMI" in real_patients.columns:
+            real_sub = real_patients[["年龄", "BMI", "每周运动_h", "饮食分数"]].copy()
+            real_sub["风险等级"] = np.where(
+                real_sub["BMI"] >= 35, 2,
+                np.where((real_sub["BMI"] >= 30) | (real_sub["每周运动_h"] < 3), 2,
+                         np.where(real_sub["BMI"] >= 25, 1, 0))
+            )
+            train_data_list.append(real_sub)
+            real_data_used = len(real_sub)
 
-        syn_df = pd.DataFrame({
-            "年龄": age, "BMI": np.round(bmi, 2),
-            "每周运动_h": np.round(exercise, 1), "饮食分数": diet, "风险等级": risk
-        })
+        # 自动补充合成数据 → 保证样本充足
+        n_synth = max(0, 500 - real_data_used)
+        if n_synth > 0:
+            age = np.random.randint(18, 70, n_synth)
+            bmi = np.random.uniform(18, 45, n_synth)
+            exercise = np.random.uniform(0, 15, n_synth)
+            diet = np.random.randint(1, 11, n_synth)
+            risk = np.where(bmi >= 35, 2, np.where((bmi >= 30) | (exercise < 3), 2, np.where(bmi >= 25, 1, 0)))
+            synth_df = pd.DataFrame({
+                "年龄": age, "BMI": np.round(bmi,2),
+                "每周运动_h": np.round(exercise,1), "饮食分数": diet, "风险等级": risk
+            })
+            train_data_list.append(synth_df)
 
-        st.write("**训练数据集预览**")
-        st.dataframe(syn_df.head(10), use_container_width=True)
+        # 合并：真实数据 + 合成数据
+        full_df = pd.concat(train_data_list, ignore_index=True)
 
-        # 训练
-        X = syn_df[["年龄", "BMI", "每周运动_h", "饮食分数"]]
-        y = syn_df["风险等级"]
+        st.success(f"✅ 训练集构建完成：真实数据 {real_data_used} 例 + 合成数据 {n_synth} 例")
+        st.dataframe(full_df.head(10), use_container_width=True)
+
+        # 训练模型
+        X = full_df[["年龄", "BMI", "每周运动_h", "饮食分数"]]
+        y = full_df["风险等级"]
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
         model = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42, n_jobs=-1)
@@ -166,7 +192,7 @@ elif page == "🧠 AI数字医疗模型":
         y_pred = model.predict(X_test)
         acc = accuracy_score(y_test, y_pred)
 
-        st.success(f"✅ 模型训练完成！测试准确率: **{acc:.2%}**")
+        st.subheader(f"🎯 模型测试准确率：**{acc:.2%}**")
         st.text(classification_report(y_test, y_pred, target_names=["低风险", "中风险", "高风险"]))
 
         st.session_state.ai_model = model
@@ -241,4 +267,4 @@ st.sidebar.code("""运行命令：
 1. pip install streamlit pandas numpy scikit-learn openpyxl
 2. streamlit run app.py
 """)
-st.caption("© 肥胖防治数字医疗项目 | 完整可交付版本")
+st.caption("© 肥胖防治数字医疗项目 | 真实数据训练版 | 完整可交付")
